@@ -152,7 +152,23 @@ PDF：{doc["pdf_url"]}"""
     res.raise_for_status()
 
 
+def send_test_notification():
+    notify_slack({
+        "category": "テスト",
+        "title": "GitHub ActionsからのSlack通知テスト",
+        "code": "-",
+        "company": "-",
+        "time": datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%H:%M"),
+        "pdf_url": BASE_URL,
+    })
+
+
 def main():
+    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+        send_test_notification()
+        print("テスト通知を送信しました")
+        return
+
     init_db()
     docs = fetch_tdnet_today()
 
