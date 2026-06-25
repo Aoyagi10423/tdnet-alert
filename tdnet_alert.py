@@ -1,6 +1,5 @@
 import os
 import re
-import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -10,7 +9,6 @@ from bs4 import BeautifulSoup
 WEBHOOK_URL = os.environ["SLACK_WEBHOOK_URL"]
 
 BASE_URL = "https://www.release.tdnet.info/inbs/"
-DB_PATH = "tdnet_alert.db"
 
 WATCH_RULES = {
     "業績予想修正": [
@@ -35,51 +33,6 @@ EXCLUDE_KEYWORDS = [
     "自己株式の取得状況および取得終了に関するお知らせ",
     "自己株式の取得状況及び取得終了に関するお知らせ",
 ]
-
-
-def init_db():
-    con = sqlite3.connect(DB_PATH)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS notified (
-            doc_id TEXT PRIMARY KEY,
-            category TEXT,
-            code TEXT,
-            company TEXT,
-            title TEXT,
-            disclosed_time TEXT,
-            pdf_url TEXT,
-            notified_at TEXT
-        )
-    """)
-    con.commit()
-    con.close()
-
-
-def already_notified(doc_id):
-    con = sqlite3.connect(DB_PATH)
-    cur = con.execute("SELECT 1 FROM notified WHERE doc_id = ?", (doc_id,))
-    exists = cur.fetchone() is not None
-    con.close()
-    return exists
-
-
-def save_notified(doc):
-    con = sqlite3.connect(DB_PATH)
-    con.execute("""
-        INSERT OR IGNORE INTO notified
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        doc["doc_id"],
-        doc["category"],
-        doc["code"],
-        doc["company"],
-        doc["title"],
-        doc["time"],
-        doc["pdf_url"],
-        datetime.now(ZoneInfo("Asia/Tokyo")).isoformat()
-    ))
-    con.commit()
-    con.close()
 
 
 def classify(title):
@@ -128,10 +81,8 @@ def fetch_tdnet_today():
 
         href = link.get("href", "")
         pdf_url = BASE_URL + href.lstrip("./")
-        doc_id = href.split("/")[-1]
 
         docs.append({
-            "doc_id": doc_id,
             "category": category,
             "time": disclosed_time,
             "code": code,
@@ -157,20 +108,15 @@ PDF：{doc["pdf_url"]}"""
 
 
 def main():
-    init_db()
     docs = fetch_tdnet_today()
 
     new_count = 0
     for doc in docs:
-        if already_notified(doc["doc_id"]):
-            continue
-
         notify_slack(doc)
-        save_notified(doc)
         new_count += 1
         print("通知:", doc["category"], doc["code"], doc["company"], doc["title"])
 
-    print(f"完了：新規通知 {new_count} 件")
+    print(f"完了：通知 {new_count} 件")
 
 
 if __name__ == "__main__":
