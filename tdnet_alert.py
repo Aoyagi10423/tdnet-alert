@@ -34,7 +34,6 @@ WATCH_RULES = {
 EXCLUDE_KEYWORDS = [
     "自己株式の取得状況および取得終了に関するお知らせ",
     "自己株式の取得状況及び取得終了に関するお知らせ",
-    "自己株式の取得状況に関するお知らせ",
 ]
 
 
@@ -90,12 +89,15 @@ def classify(title):
     for category, keywords in WATCH_RULES.items():
         if any(k in title for k in keywords):
             return category
+
     return None
 
 
 def fetch_tdnet_today():
     today = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y%m%d")
     url = f"{BASE_URL}I_list_001_{today}.html"
+
+    print(f"取得URL: {url}")
 
     res = requests.get(url, timeout=15)
     res.raise_for_status()
@@ -113,6 +115,8 @@ def fetch_tdnet_today():
         code = cells[1]
         company = cells[2]
         title = cells[3]
+
+        print(f"取得タイトル: {code} {company} {title}")
 
         category = classify(title)
         if not category:
@@ -152,23 +156,7 @@ PDF：{doc["pdf_url"]}"""
     res.raise_for_status()
 
 
-def send_test_notification():
-    notify_slack({
-        "category": "テスト",
-        "title": "GitHub ActionsからのSlack通知テスト",
-        "code": "-",
-        "company": "-",
-        "time": datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%H:%M"),
-        "pdf_url": BASE_URL,
-    })
-
-
 def main():
-    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
-        send_test_notification()
-        print("テスト通知を送信しました")
-        return
-
     init_db()
     docs = fetch_tdnet_today()
 
