@@ -24,11 +24,3 @@ jobs:
       - run: python tdnet_alert.py
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-      - name: Save notified history
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add notified.json
-          git commit -m "Update notified history" || echo "No changes"
-          git push
