@@ -1,15 +1,16 @@
+import os
 import re
-import sqlite3
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
 
-WEBHOOK_URL = "https://hooks.slack.com/services/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"
+WEBHOOK_URL = os.environ["SLACK_WEBHOOK_URL"]
 
 BASE_URL = "https://www.release.tdnet.info/inbs/"
-DB_PATH = "tdnet_alert.db"
+NOTIFIED_FILE = "notified.json"
 
 WATCH_RULES = {
     "業績予想修正": [
@@ -20,7 +21,6 @@ WATCH_RULES = {
     "自己株式取得": [
         "自己株式取得",
         "自己株式の取得",
-        "自己株式の取得状況",
     ],
     "TOB・公開買付け": [
         "公開買付け",
@@ -31,62 +31,41 @@ WATCH_RULES = {
     ],
 }
 
-
-def init_db():
-    con = sqlite3.connect(DB_PATH)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS notified (
-            doc_id TEXT PRIMARY KEY,
-            category TEXT,
-            code TEXT,
-            company TEXT,
-            title TEXT,
-            disclosed_time TEXT,
-            pdf_url TEXT,
-            notified_at TEXT
-        )
-    """)
-    con.commit()
-    con.close()
+EXCLUDE_KEYWORDS = [
+    "自己株式の取得状況および取得終了に関するお知らせ",
+    "自己株式の取得状況及び取得終了に関するお知らせ",
+]
 
 
-def already_notified(doc_id):
-    con = sqlite3.connect(DB_PATH)
-    cur = con.execute("SELECT 1 FROM notified WHERE doc_id = ?", (doc_id,))
-    exists = cur.fetchone() is not None
-    con.close()
-    return exists
+def load_notified():
+    if not os.path.exists(NOTIFIED_FILE):
+        return set()
+
+    with open(NOTIFIED_FILE, "r", encoding="utf-8") as f:
+        return set(json.load(f))
 
 
-def save_notified(doc):
-    con = sqlite3.connect(DB_PATH)
-    con.execute("""
-        INSERT OR IGNORE INTO notified
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        doc["doc_id"],
-        doc["category"],
-        doc["code"],
-        doc["company"],
-        doc["title"],
-        doc["time"],
-        doc["pdf_url"],
-        datetime.now(ZoneInfo("Asia/Tokyo")).isoformat()
-    ))
-    con.commit()
-    con.close()
+def save_notified(notified):
+    with open(NOTIFIED_FILE, "w", encoding="utf-8") as f:
+        json.dump(sorted(list(notified)), f, ensure_ascii=False, indent=2)
 
 
 def classify(title):
+    if any(k in title for k in EXCLUDE_KEYWORDS):
+        return None
+
     for category, keywords in WATCH_RULES.items():
         if any(k in title for k in keywords):
             return category
+
     return None
 
 
 def fetch_tdnet_today():
     today = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y%m%d")
     url = f"{BASE_URL}I_list_001_{today}.html"
+
+    print(f"取得URL: {url}")
 
     res = requests.get(url, timeout=15)
     res.raise_for_status()
@@ -144,18 +123,22 @@ PDF：{doc["pdf_url"]}"""
 
 
 def main():
-    init_db()
+    notified = load_notified()
     docs = fetch_tdnet_today()
 
     new_count = 0
+
     for doc in docs:
-        if already_notified(doc["doc_id"]):
+        if doc["doc_id"] in notified:
+            print("重複スキップ:", doc["code"], doc["company"], doc["title"])
             continue
 
         notify_slack(doc)
-        save_notified(doc)
+        notified.add(doc["doc_id"])
         new_count += 1
         print("通知:", doc["category"], doc["code"], doc["company"], doc["title"])
+
+    save_notified(notified)
 
     print(f"完了：新規通知 {new_count} 件")
 
